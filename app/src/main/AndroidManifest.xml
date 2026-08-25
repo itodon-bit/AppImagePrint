@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- カメラ撮影に必要な権限 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+    <!-- OCR(文字認識)モデルの初回ダウンロードに必要 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 印刷フレームワーク自体はネットワーク権限を個別に要求しないが、
+         プリンタ検出用のPrint Serviceアプリ側が処理するため追加不要 -->
+
+    <application
+        android:allowBackup="true"
+        android:label="写真印刷アプリ"
+        android:theme="@style/Theme.PhotoPrintApp"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- カメラアプリが撮影した画像を保存するために必要なFileProvider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

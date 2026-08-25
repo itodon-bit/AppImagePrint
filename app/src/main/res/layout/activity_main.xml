@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <!-- 写真表示エリア。ImageViewの上にCropOverlayViewを重ねて範囲選択を行う -->
+    <FrameLayout
+        android:id="@+id/photoContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#EEEEEE">
+
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:contentDescription="撮影した写真" />
+
+        <com.example.photoprint.CropOverlayView
+            android:id="@+id/cropOverlayView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btnTakePhoto"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="写真を撮る" />
+
+        <Button
+            android:id="@+id/btnPrint"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:enabled="false"
+            android:text="画像を印刷" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btnOcr"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="範囲を選んで再認識" />
+
+        <Button
+            android:id="@+id/btnPrintText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:enabled="false"
+            android:text="テキストを印刷" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="写真を撮影後、指でドラッグして印刷したい範囲を選択してください"
+        android:textSize="12sp" />
+
+    <!-- OCRの認識結果。誤字があればここで修正してから印刷できる -->
+    <EditText
+        android:id="@+id/etRecognizedText"
+        android:layout_width="match_parent"
+        android:layout_height="160dp"
+        android:layout_weight="0"
+        android:layout_marginTop="4dp"
+        android:background="#F5F5F5"
+        android:gravity="top|start"
+        android:hint="ここに認識したテキストが表示されます(編集可能)"
+        android:padding="8dp"
+        android:textSize="22sp" />
+
+</LinearLayout>
