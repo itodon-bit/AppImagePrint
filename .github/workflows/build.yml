@@ -1,0 +1,42 @@
+name: Build APK
+
+# main/masterブランチにpushされたとき、または手動実行(Actionsタブから "Run workflow")で起動
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: JDK 17をセットアップ
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Android SDKをセットアップ
+        uses: android-actions/setup-android@v3
+
+      - name: 必要なSDKパッケージをインストール
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Gradleをセットアップ
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: デバッグAPKをビルド
+        run: gradle assembleDebug --no-daemon
+
+      - name: APKをアップロード(ビルド完了後にActionsの実行結果画面からダウンロード可能)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoPrintApp-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
