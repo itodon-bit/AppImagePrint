@@ -3,6 +3,7 @@ package com.example.photoprint
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -12,10 +13,10 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
-import android.net.Uri
 import android.os.Bundle
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.TextWatcher
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -27,7 +28,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import androidx.print.PrintHelper
 import com.google.mlkit.vision.common.InputImage
@@ -54,18 +54,23 @@ class MainActivity : AppCompatActivity() {
         TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
     }
 
-    // 撮影した写真の一時保存先URI/File
-    private var photoUri: Uri? = null
+    // 撮影した写真の一時保存先File
     private var photoFile: File? = null
 
     // 撮影後に読み込んだ元のBitmap(トリミングの元データ)
     private var originalBitmap: Bitmap? = null
 
-    // カメラアプリを起動して撮影結果を受け取るランチャー
-    private val takePictureLauncher =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-            if (success) {
-                onPhotoCaptured()
+    // 自前のカメラ画面(ターゲット枠付き)を起動し、撮影結果(ファイルパス)を受け取るランチャー
+    private val cameraActivityLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val path = result.data?.getStringExtra(CameraActivity.EXTRA_PHOTO_PATH)
+                if (path != null) {
+                    photoFile = File(path)
+                    onPhotoCaptured()
+                } else {
+                    Toast.makeText(this, "撮影データを取得できませんでした", Toast.LENGTH_SHORT).show()
+                }
             } else {
                 Toast.makeText(this, "撮影がキャンセルされました", Toast.LENGTH_SHORT).show()
             }
@@ -105,6 +110,17 @@ class MainActivity : AppCompatActivity() {
         etRecognizedText.setOnFocusChangeListener { _, hasFocus ->
             setTextEditingExpanded(hasFocus)
         }
+
+        // 写真を撮らず、キーボードで直接入力した場合でも印刷できるよう、
+        // 文字が入っているかどうかで印刷ボタンの有効/無効を自動的に切り替える
+        etRecognizedText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                btnPrintText.isEnabled = !s.isNullOrBlank()
+            }
+        })
+        btnPrintText.isEnabled = etRecognizedText.text?.isNotBlank() == true
     }
 
     /** 編集欄を最大化する/元に戻す。trueで写真プレビューを隠して編集欄に画面を譲る */
@@ -135,14 +151,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchCamera() {
-        // 撮影データの保存先を用意(FileProvider経由でカメラアプリに渡す)
-        val imagesDir = File(getExternalFilesDir(null), "images").apply { mkdirs() }
-        val file = File(imagesDir, "captured_${System.currentTimeMillis()}.jpg")
-        photoFile = file
-        photoUri = FileProvider.getUriForFile(
-            this, "${packageName}.fileprovider", file
-        )
-        photoUri?.let { takePictureLauncher.launch(it) }
+        cameraActivityLauncher.launch(Intent(this, CameraActivity::class.java))
     }
 
     private fun onPhotoCaptured() {

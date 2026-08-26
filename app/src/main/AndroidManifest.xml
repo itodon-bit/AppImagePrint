@@ -26,6 +26,13 @@
             </intent-filter>
         </activity>
 
+        <!-- ターゲット枠付きの自前カメラ撮影画面 -->
+        <activity
+            android:name=".CameraActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.PhotoPrintApp" />
+
         <!-- カメラアプリが撮影した画像を保存するために必要なFileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"
