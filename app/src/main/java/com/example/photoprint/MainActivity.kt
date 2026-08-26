@@ -57,16 +57,34 @@ class MainActivity : AppCompatActivity() {
     // 撮影した写真の一時保存先File
     private var photoFile: File? = null
 
+    // 撮影時のターゲット枠の位置・サイズ(プレビュー画面に対する割合)。枠情報が無い場合はnullのまま
+    private var frameLeftRatio: Float? = null
+    private var frameTopRatio: Float? = null
+    private var frameRightRatio: Float? = null
+    private var frameBottomRatio: Float? = null
+
     // 撮影後に読み込んだ元のBitmap(トリミングの元データ)
     private var originalBitmap: Bitmap? = null
 
-    // 自前のカメラ画面(ターゲット枠付き)を起動し、撮影結果(ファイルパス)を受け取るランチャー
+    // 自前のカメラ画面(ターゲット枠付き)を起動し、撮影結果(ファイルパス・枠の位置情報)を受け取るランチャー
     private val cameraActivityLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
                 val path = result.data?.getStringExtra(CameraActivity.EXTRA_PHOTO_PATH)
                 if (path != null) {
                     photoFile = File(path)
+
+                    // 枠の情報が含まれていれば保持し、無ければnullにして写真全体を対象にする
+                    val data = result.data
+                    frameLeftRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_LEFT_RATIO) == true)
+                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_LEFT_RATIO, 0f) else null
+                    frameTopRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_TOP_RATIO) == true)
+                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_TOP_RATIO, 0f) else null
+                    frameRightRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_RIGHT_RATIO) == true)
+                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_RIGHT_RATIO, 1f) else null
+                    frameBottomRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_BOTTOM_RATIO) == true)
+                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_BOTTOM_RATIO, 1f) else null
+
                     onPhotoCaptured()
                 } else {
                     Toast.makeText(this, "撮影データを取得できませんでした", Toast.LENGTH_SHORT).show()
@@ -170,11 +188,28 @@ class MainActivity : AppCompatActivity() {
         btnOcr.isEnabled = true
         btnPrintText.isEnabled = false
         etRecognizedText.setText("")
-        tvHint.text = "写真全体の文字を自動で読み取っています…"
+        tvHint.text = "枠内の文字を自動で読み取っています…"
 
-        // 範囲選択の手間を省くため、撮影直後に写真全体を自動でOCRする
-        // (あとから範囲を選んで「選択範囲を文字認識」を押せば、その部分だけで再認識も可能)
-        bitmap.let { runOcr(it) }
+        // 範囲選択の手間を省くため、撮影直後に「ターゲット枠内」を自動でOCRする
+        // (枠の情報が無い場合は写真全体が対象になる)
+        // (あとから範囲を選んで「範囲を選んで再認識」を押せば、任意の部分で再認識も可能)
+        runOcr(cropToFrameIfAvailable(bitmap))
+    }
+
+    /** 撮影時のターゲット枠の位置情報があれば、その範囲だけを写真から切り出す。無ければ写真全体を返す */
+    private fun cropToFrameIfAvailable(bitmap: Bitmap): Bitmap {
+        val left = frameLeftRatio
+        val top = frameTopRatio
+        val right = frameRightRatio
+        val bottom = frameBottomRatio
+        if (left == null || top == null || right == null || bottom == null) return bitmap
+
+        val l = (left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+        val t = (top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+        val r = (right * bitmap.width).toInt().coerceIn(l + 1, bitmap.width)
+        val b = (bottom * bitmap.height).toInt().coerceIn(t + 1, bitmap.height)
+
+        return Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
     }
 
     /** 画像を必要サイズまで縮小して読み込む(OutOfMemory対策)。EXIFの回転情報も適用する */

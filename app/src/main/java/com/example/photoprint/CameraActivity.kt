@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -27,6 +28,11 @@ class CameraActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PHOTO_PATH = "photo_path"
+        // 撮影時のターゲット枠の位置・サイズを、プレビュー画面に対する割合(0.0〜1.0)で渡すためのキー
+        const val EXTRA_FRAME_LEFT_RATIO = "frame_left_ratio"
+        const val EXTRA_FRAME_TOP_RATIO = "frame_top_ratio"
+        const val EXTRA_FRAME_RIGHT_RATIO = "frame_right_ratio"
+        const val EXTRA_FRAME_BOTTOM_RATIO = "frame_bottom_ratio"
     }
 
     private lateinit var previewView: PreviewView
@@ -72,11 +78,15 @@ class CameraActivity : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
+            val preview = Preview.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
 
-            imageCapture = ImageCapture.Builder().build()
+            imageCapture = ImageCapture.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .build()
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
@@ -127,6 +137,17 @@ class CameraActivity : AppCompatActivity() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     val resultIntent = Intent().putExtra(EXTRA_PHOTO_PATH, file.absolutePath)
+
+                    // 撮影時のターゲット枠の位置・サイズを、プレビュー画面に対する割合で一緒に渡す。
+                    // MainActivity側でこの割合を使い、撮影された写真のうち枠内の部分だけを切り出せるようにする。
+                    val rect = targetOverlayView.getGuideRect()
+                    if (rect != null && targetOverlayView.width > 0 && targetOverlayView.height > 0) {
+                        resultIntent.putExtra(EXTRA_FRAME_LEFT_RATIO, rect.left / targetOverlayView.width)
+                        resultIntent.putExtra(EXTRA_FRAME_TOP_RATIO, rect.top / targetOverlayView.height)
+                        resultIntent.putExtra(EXTRA_FRAME_RIGHT_RATIO, rect.right / targetOverlayView.width)
+                        resultIntent.putExtra(EXTRA_FRAME_BOTTOM_RATIO, rect.bottom / targetOverlayView.height)
+                    }
+
                     setResult(RESULT_OK, resultIntent)
                     finish()
                 }
