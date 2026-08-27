@@ -34,12 +34,12 @@
         android:text="キャンセル" />
 
     <Button
-        android:id="@+id/btnResetFrame"
+        android:id="@+id/btnToggleFrame"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_margin="16dp"
-        android:text="枠をリセット" />
+        android:text="枠を隠す" />
 
     <Button
         android:id="@+id/btnCapture"

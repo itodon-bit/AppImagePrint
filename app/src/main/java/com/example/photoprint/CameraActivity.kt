@@ -3,6 +3,7 @@ package com.example.photoprint
 import android.content.Intent
 import android.graphics.RectF
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -39,10 +40,11 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var targetOverlayView: TargetOverlayView
     private lateinit var btnCapture: Button
     private lateinit var btnCancel: Button
-    private lateinit var btnResetFrame: Button
+    private lateinit var btnToggleFrame: Button
 
     private var imageCapture: ImageCapture? = null
     private var camera: androidx.camera.core.Camera? = null
+    private var isFrameVisible = true
 
     // ズーム倍率を計算する基準となる、枠の標準サイズ(初期状態)の幅
     private var referenceGuideWidth: Float? = null
@@ -55,16 +57,19 @@ class CameraActivity : AppCompatActivity() {
         targetOverlayView = findViewById(R.id.targetOverlayView)
         btnCapture = findViewById(R.id.btnCapture)
         btnCancel = findViewById(R.id.btnCancel)
-        btnResetFrame = findViewById(R.id.btnResetFrame)
+        btnToggleFrame = findViewById(R.id.btnToggleFrame)
 
         btnCancel.setOnClickListener {
             setResult(RESULT_CANCELED)
             finish()
         }
         btnCapture.setOnClickListener { takePhoto() }
-        btnResetFrame.setOnClickListener {
-            targetOverlayView.resetToDefault()
-            camera?.cameraControl?.setZoomRatio(1f)
+        btnToggleFrame.setOnClickListener {
+            isFrameVisible = !isFrameVisible
+            // GONEではなくINVISIBLEにすることで、レイアウトの再計算を発生させずに
+            // 枠だけを一時的に隠し、カメラの見た目を確認できるようにする
+            targetOverlayView.visibility = if (isFrameVisible) View.VISIBLE else View.INVISIBLE
+            btnToggleFrame.text = if (isFrameVisible) "枠を隠す" else "枠を表示"
         }
 
         // 枠のサイズが変わるたびに、それに応じてカメラのズームを調整する
@@ -140,8 +145,12 @@ class CameraActivity : AppCompatActivity() {
 
                     // 撮影時のターゲット枠の位置・サイズを、プレビュー画面に対する割合で一緒に渡す。
                     // MainActivity側でこの割合を使い、撮影された写真のうち枠内の部分だけを切り出せるようにする。
+                    // ただし、枠を隠した状態で撮影した場合は「カメラの見た目そのまま」を撮りたいという
+                    // 意図とみなし、枠の情報を渡さない(=写真全体がOCRの対象になる)。
                     val rect = targetOverlayView.getGuideRect()
-                    if (rect != null && targetOverlayView.width > 0 && targetOverlayView.height > 0) {
+                    if (isFrameVisible && rect != null &&
+                        targetOverlayView.width > 0 && targetOverlayView.height > 0
+                    ) {
                         resultIntent.putExtra(EXTRA_FRAME_LEFT_RATIO, rect.left / targetOverlayView.width)
                         resultIntent.putExtra(EXTRA_FRAME_TOP_RATIO, rect.top / targetOverlayView.height)
                         resultIntent.putExtra(EXTRA_FRAME_RIGHT_RATIO, rect.right / targetOverlayView.width)

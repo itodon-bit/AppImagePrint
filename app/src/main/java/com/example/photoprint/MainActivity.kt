@@ -54,6 +54,10 @@ class MainActivity : AppCompatActivity() {
         TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
     }
 
+    // 認識結果の中から「対象のコード」を見つけるための正規表現
+    // (例: 12AB-3456 のような、数字2桁 + 英数字(任意) + ハイフン(必須) + 数字、という構造)
+    private val targetCodeRegex = Regex("""\d{2}[A-Za-z\d]*-\d+""")
+
     // 撮影した写真の一時保存先File
     private var photoFile: File? = null
 
@@ -188,12 +192,20 @@ class MainActivity : AppCompatActivity() {
         btnOcr.isEnabled = true
         btnPrintText.isEnabled = false
         etRecognizedText.setText("")
-        tvHint.text = "枠内の文字を自動で読み取っています…"
 
-        // 範囲選択の手間を省くため、撮影直後に「ターゲット枠内」を自動でOCRする
-        // (枠の情報が無い場合は写真全体が対象になる)
-        // (あとから範囲を選んで「範囲を選んで再認識」を押せば、任意の部分で再認識も可能)
-        runOcr(cropToFrameIfAvailable(bitmap))
+        // 撮影時に枠(ターゲット枠)が使われていた場合だけ、自動でOCRを実行する。
+        // 枠を隠して「写真全体」を撮影した場合はOCRを行わず、必要であれば
+        // 「範囲を選んで再認識」で手動により文字認識してもらう。
+        val hasFrame = frameLeftRatio != null && frameTopRatio != null &&
+            frameRightRatio != null && frameBottomRatio != null
+
+        if (hasFrame) {
+            tvHint.text = "枠内の文字を自動で読み取っています…"
+            runOcr(cropToFrameIfAvailable(bitmap), highlightTargetCode = true)
+        } else {
+            tvHint.text = "写真を撮影しました。文字を読み取る場合は、範囲を選んで" +
+                "「範囲を選んで再認識」を押してください"
+        }
     }
 
     /** 撮影時のターゲット枠の位置情報があれば、その範囲だけを写真から切り出す。無ければ写真全体を返す */
@@ -374,8 +386,12 @@ class MainActivity : AppCompatActivity() {
         runOcr(cropped)
     }
 
-    /** 指定したBitmapに対してOCR(文字認識)を実行する共通処理 */
-    private fun runOcr(bitmap: Bitmap) {
+    /**
+     * 指定したBitmapに対してOCR(文字認識)を実行する共通処理。
+     * highlightTargetCode が true の場合、認識結果の中から targetCodeRegex に一致する部分を探し、
+     * 見つかればその部分だけを編集欄で選択状態(反転表示)にする。
+     */
+    private fun runOcr(bitmap: Bitmap, highlightTargetCode: Boolean = false) {
         val processed = preprocessForOcr(bitmap)
         val inputImage = InputImage.fromBitmap(processed, 0)
 
@@ -394,6 +410,16 @@ class MainActivity : AppCompatActivity() {
                     btnPrintText.isEnabled = true
                     tvHint.text = "認識結果を確認・修正してから印刷してください" +
                         "(うまく読めない場合は範囲を選んで「選択範囲を文字認識」で再認識できます)"
+
+                    if (highlightTargetCode) {
+                        val match = targetCodeRegex.find(recognized)
+                        if (match != null) {
+                            // 見つかった対象コードの部分だけを選択状態(反転表示)にする
+                            etRecognizedText.requestFocus()
+                            etRecognizedText.setSelection(match.range.first, match.range.last + 1)
+                            tvHint.text = "対象のコードを見つけて選択しました。そのまま印刷、または修正できます"
+                        }
+                    }
                 }
             }
             .addOnFailureListener { e ->
