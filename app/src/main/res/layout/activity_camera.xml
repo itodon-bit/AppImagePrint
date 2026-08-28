@@ -25,6 +25,20 @@
         android:textColor="#FFFFFF"
         android:textSize="14sp" />
 
+    <!-- 撮影前のプレビュー中に、枠内で認識されている文字をリアルタイムで表示する -->
+    <TextView
+        android:id="@+id/liveResultText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="120dp"
+        android:background="#AA000000"
+        android:padding="10dp"
+        android:text="枠内の文字を認識中…"
+        android:textColor="#CCCCCC"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
     <Button
         android:id="@+id/btnCancel"
         android:layout_width="wrap_content"

@@ -414,9 +414,14 @@ class MainActivity : AppCompatActivity() {
                     if (highlightTargetCode) {
                         val match = targetCodeRegex.find(recognized)
                         if (match != null) {
-                            // 見つかった対象コードの部分だけを選択状態(反転表示)にする
-                            etRecognizedText.requestFocus()
-                            etRecognizedText.setSelection(match.range.first, match.range.last + 1)
+                            val start = match.range.first
+                            val end = match.range.last + 1
+                            // レイアウトが確定してから選択しないと反映されないことがあるため、
+                            // post()で次の描画タイミングまで処理を遅らせる
+                            etRecognizedText.post {
+                                etRecognizedText.requestFocus()
+                                etRecognizedText.setSelection(start, end)
+                            }
                             tvHint.text = "対象のコードを見つけて選択しました。そのまま印刷、または修正できます"
                         }
                     }
