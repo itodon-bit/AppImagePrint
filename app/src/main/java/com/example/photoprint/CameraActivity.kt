@@ -63,7 +63,7 @@ class CameraActivity : AppCompatActivity() {
     private val liveTextRecognizer by lazy {
         TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
     }
-    private val targetCodeRegex = Regex("""\d{2}[A-Za-z]*-[A-Za-z]*\d{8}""")
+    private val targetCodeRegex = Regex("""\d{2}[A-Za-z]?-[A-Za-z]?\d{8}""")
     private var isAnalyzing = false
     // 対象コードを検出して自動撮影した後、連続で何度も撮影しないようにするためのフラグ
     private var hasAutoCaptured = false
