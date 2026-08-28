@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -20,10 +21,13 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * ターゲット枠(狙いを定めるガイド)付きの自前カメラ画面。
@@ -67,6 +71,15 @@ class CameraActivity : AppCompatActivity() {
     // ズーム倍率を計算する基準となる、枠の標準サイズ(初期状態)の幅
     private var referenceGuideWidth: Float? = null
 
+    // 据え置き撮影(スマホ固定・対象物を入れ替える)を想定し、定期的に枠の中心へピントを合わせ直す
+    private val focusHandler = Handler(Looper.getMainLooper())
+    private val periodicFocusRunnable = object : Runnable {
+        override fun run() {
+            focusOnGuideRect()
+            focusHandler.postDelayed(this, 1000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
@@ -92,8 +105,11 @@ class CameraActivity : AppCompatActivity() {
             btnToggleFrame.text = if (isFrameVisible) "枠を隠す" else "枠を表示"
         }
 
-        // 枠のサイズが変わるたびに、それに応じてカメラのズームを調整する
-        targetOverlayView.onRectChanged = { rect -> updateZoomForRect(rect) }
+        // 枠のサイズが変わるたびに、それに応じてカメラのズームを調整し、ピントも枠の中心に合わせ直す
+        targetOverlayView.onRectChanged = { rect ->
+            updateZoomForRect(rect)
+            focusOnGuideRect()
+        }
 
         startCameraPreview()
     }
@@ -134,13 +150,48 @@ class CameraActivity : AppCompatActivity() {
                 // レイアウト確定後の枠の初期サイズを、ズーム計算の基準として記録しておく
                 targetOverlayView.post {
                     referenceGuideWidth = targetOverlayView.getGuideRect()?.width()
+                    focusOnGuideRect()
                 }
+                // 据え置き撮影を想定し、枠の中心へのピント合わせを定期的に繰り返す
+                focusHandler.removeCallbacks(periodicFocusRunnable)
+                focusHandler.postDelayed(periodicFocusRunnable, 1000)
             } catch (e: Exception) {
                 Toast.makeText(this, "カメラを起動できませんでした: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 setResult(RESULT_CANCELED)
                 finish()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /**
+     * ターゲット枠の中心にカメラのピント(オートフォーカス)・露出を合わせる。
+     * スマホを固定して対象物を入れ替えるような使い方でも、枠内にちゃんとピントが合うようにするための処理。
+     */
+    private fun focusOnGuideRect() {
+        val cam = camera ?: return
+        val rect = targetOverlayView.getGuideRect() ?: return
+        if (targetOverlayView.width <= 0 || targetOverlayView.height <= 0) return
+
+        val meteringPoint = previewView.meteringPointFactory.createPoint(rect.centerX(), rect.centerY())
+        val action = FocusMeteringAction.Builder(
+            meteringPoint,
+            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+        )
+            // 一定時間経つと自動キャンセルされる設定にしておくことで、
+            // 定期的な再実行によって常に枠内へピントを合わせ直せるようにしている
+            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+            .build()
+
+        try {
+            cam.cameraControl.startFocusAndMetering(action)
+        } catch (e: Exception) {
+            // 端末によっては対応していない場合があるため、失敗しても無視する
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        focusHandler.removeCallbacks(periodicFocusRunnable)
     }
 
     /**
@@ -236,12 +287,11 @@ class CameraActivity : AppCompatActivity() {
     }
 
     /**
-     * 検出した文字の周辺に少し余白を持たせつつ、画像全体に対する割合(0.0〜1.0)の矩形に変換する。
-     * 文字ぴったりだと余白が無さすぎて見づらくなるため、上下左右に少し余裕を持たせている。
+     * 検出した文字の周辺の余白を最小限にしつつ、画像全体に対する割合(0.0〜1.0)の矩形に変換する。
      */
     private fun paddedRatioRect(box: Rect, imageWidth: Int, imageHeight: Int): RectF {
-        val paddingX = box.width() * 0.25f
-        val paddingY = box.height() * 0.6f
+        val paddingX = box.width() * 0.03f
+        val paddingY = box.height() * 0.08f
         val left = (box.left - paddingX).coerceAtLeast(0f)
         val top = (box.top - paddingY).coerceAtLeast(0f)
         val right = (box.right + paddingX).coerceAtMost(imageWidth.toFloat())

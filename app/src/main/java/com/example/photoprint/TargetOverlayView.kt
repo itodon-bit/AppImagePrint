@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.abs
@@ -25,7 +26,7 @@ class TargetOverlayView @JvmOverloads constructor(
 
     private var guideRect: RectF? = null
     private val touchSlop = 70f
-    private val minSize = 150f
+    private val minSize = 60f
 
     private enum class DragMode { NONE, MOVE, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR }
     private var dragMode = DragMode.NONE
@@ -69,14 +70,20 @@ class TargetOverlayView @JvmOverloads constructor(
     }
 
     private fun createDefaultRect(w: Int, h: Int): RectF {
-        val marginRatioHorizontal = 0.08f
-        val marginRatioVertical = 0.30f
-        return RectF(
-            w * marginRatioHorizontal,
-            h * marginRatioVertical,
-            w * (1 - marginRatioHorizontal),
-            h * (1 - marginRatioVertical)
+        // 実寸で縦1cm×横3.5cm相当のサイズにする(端末のdpiを使ってmmからpxに変換)
+        val targetWidthPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_MM, 35f, resources.displayMetrics
         )
+        val targetHeightPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_MM, 10f, resources.displayMetrics
+        )
+        // 画面より大きくなってしまう場合の保険として、画面サイズの90%を上限にする
+        val width = targetWidthPx.coerceAtMost(w * 0.9f)
+        val height = targetHeightPx.coerceAtMost(h * 0.9f)
+
+        val left = (w - width) / 2f
+        val top = (h - height) / 2f
+        return RectF(left, top, left + width, top + height)
     }
 
     /** 現在のガイド枠(このView座標)。レイアウト確定前はnull */
