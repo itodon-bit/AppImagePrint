@@ -99,6 +99,9 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "撮影データを取得できませんでした", Toast.LENGTH_SHORT).show()
                 }
             } else {
+                // キャンセルされた場合は、前回までの認識結果が残って紛らわしくならないよう編集欄もクリアする
+                etRecognizedText.setText("")
+                btnPrintText.isEnabled = false
                 Toast.makeText(this, "撮影がキャンセルされました", Toast.LENGTH_SHORT).show()
             }
         }
