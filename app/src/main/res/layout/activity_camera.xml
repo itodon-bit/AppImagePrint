@@ -31,10 +31,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="120dp"
+        android:layout_marginBottom="180dp"
         android:background="#AA000000"
         android:padding="10dp"
-        android:text="枠内の文字を認識中…"
+        android:text="「セット」を押すと文字認識を開始します"
         android:textColor="#CCCCCC"
         android:textSize="16sp"
         android:textStyle="bold" />
@@ -54,6 +54,17 @@
         android:layout_gravity="top|end"
         android:layout_margin="16dp"
         android:text="枠を隠す" />
+
+    <!-- 押すまでは文字認識(ライブ解析)を行わない。据え置き撮影で対象物を置いてから押す想定 -->
+    <Button
+        android:id="@+id/btnSet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="110dp"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:text="セット" />
 
     <Button
         android:id="@+id/btnCapture"

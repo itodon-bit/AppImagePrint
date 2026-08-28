@@ -393,7 +393,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * 指定したBitmapに対してOCR(文字認識)を実行する共通処理。
      * highlightTargetCode が true の場合、認識結果の中から targetCodeRegex に一致する部分を探し、
-     * 見つかればその部分だけを編集欄で選択状態(反転表示)にする。
+     * 見つかればその部分「だけ」を編集欄に表示する(一致しなければ認識結果全体を表示する)。
      */
     private fun runOcr(bitmap: Bitmap, highlightTargetCode: Boolean = false) {
         val processed = preprocessForOcr(bitmap)
@@ -409,26 +409,34 @@ class MainActivity : AppCompatActivity() {
                 if (recognized.isBlank()) {
                     tvHint.text = "文字を認識できませんでした。範囲を調整して再度お試しください"
                     btnPrintText.isEnabled = false
+                    return@addOnSuccessListener
+                }
+
+                if (highlightTargetCode) {
+                    val match = targetCodeRegex.find(recognized)
+                    if (match != null) {
+                        // 一致した対象コードの部分だけを編集欄に表示する
+                        etRecognizedText.setText(match.value)
+                        btnPrintText.isEnabled = true
+                        // レイアウトが確定してから選択しないと反映されないことがあるため、
+                        // post()で次の描画タイミングまで処理を遅らせる
+                        etRecognizedText.post {
+                            etRecognizedText.requestFocus()
+                            etRecognizedText.setSelection(0, match.value.length)
+                        }
+                        tvHint.text = "対象のコードを読み取りました。そのまま印刷、または修正できます"
+                    } else {
+                        // 対象コードの形式に一致しなかった場合は、認識結果全体をそのまま表示する
+                        etRecognizedText.setText(recognized)
+                        btnPrintText.isEnabled = true
+                        tvHint.text = "読み取れましたが、対象コードの形式(例: 12A-B12345678)には" +
+                            "一致しませんでした。内容を確認・修正してください"
+                    }
                 } else {
                     etRecognizedText.setText(recognized)
                     btnPrintText.isEnabled = true
                     tvHint.text = "認識結果を確認・修正してから印刷してください" +
                         "(うまく読めない場合は範囲を選んで「選択範囲を文字認識」で再認識できます)"
-
-                    if (highlightTargetCode) {
-                        val match = targetCodeRegex.find(recognized)
-                        if (match != null) {
-                            val start = match.range.first
-                            val end = match.range.last + 1
-                            // レイアウトが確定してから選択しないと反映されないことがあるため、
-                            // post()で次の描画タイミングまで処理を遅らせる
-                            etRecognizedText.post {
-                                etRecognizedText.requestFocus()
-                                etRecognizedText.setSelection(start, end)
-                            }
-                            tvHint.text = "対象のコードを見つけて選択しました。そのまま印刷、または修正できます"
-                        }
-                    }
                 }
             }
             .addOnFailureListener { e ->

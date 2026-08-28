@@ -54,10 +54,13 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var btnCapture: Button
     private lateinit var btnCancel: Button
     private lateinit var btnToggleFrame: Button
+    private lateinit var btnSet: Button
 
     private var imageCapture: ImageCapture? = null
     private var camera: androidx.camera.core.Camera? = null
     private var isFrameVisible = true
+    // 「セット」ボタンが押されるまでは文字認識(ライブ解析)を行わない
+    private var isArmed = false
 
     // 撮影前のプレビュー中に、枠内の文字をリアルタイムで認識するための仕組み
     private val liveTextRecognizer by lazy {
@@ -69,6 +72,8 @@ class CameraActivity : AppCompatActivity() {
     private var hasAutoCaptured = false
     // 直近のフレームで対象コードを検出できているかどうか
     private var hasDetectedMatch = false
+    // 誤読による1回きりの偶然の一致で撮影しないよう、何フレーム連続で検出できたかを数える
+    private var consecutiveMatchCount = 0
 
     // ズーム倍率を計算する基準となる、枠の標準サイズ(初期状態)の幅
     private var referenceGuideWidth: Float? = null
@@ -78,7 +83,7 @@ class CameraActivity : AppCompatActivity() {
     private val periodicFocusRunnable = object : Runnable {
         override fun run() {
             focusOnGuideRect()
-            focusHandler.postDelayed(this, 3000)
+            focusHandler.postDelayed(this, 1000)
         }
     }
 
@@ -92,6 +97,7 @@ class CameraActivity : AppCompatActivity() {
         btnCapture = findViewById(R.id.btnCapture)
         btnCancel = findViewById(R.id.btnCancel)
         btnToggleFrame = findViewById(R.id.btnToggleFrame)
+        btnSet = findViewById(R.id.btnSet)
 
         btnCancel.setOnClickListener {
             setResult(RESULT_CANCELED)
@@ -109,11 +115,29 @@ class CameraActivity : AppCompatActivity() {
             liveResultText.visibility = if (isFrameVisible) View.VISIBLE else View.INVISIBLE
             btnToggleFrame.text = if (isFrameVisible) "枠を隠す" else "枠を表示"
         }
+        btnSet.setOnClickListener {
+            // 対象物をセットし終えたタイミングでこのボタンを押すことで、ピント合わせと文字認識を開始する
+            isArmed = true
+            hasAutoCaptured = false
+            consecutiveMatchCount = 0
+            btnSet.isEnabled = false
+            btnSet.text = "認識中…"
+            liveResultText.text = "枠内の文字を認識中…"
+            liveResultText.setTextColor(Color.LTGRAY)
 
-        // 枠のサイズが変わるたびに、それに応じてカメラのズームを調整し、ピントも枠の中心に合わせ直す
+            // ピント合わせを開始し、以降は定期的に合わせ直す
+            focusOnGuideRect()
+            focusHandler.removeCallbacks(periodicFocusRunnable)
+            focusHandler.postDelayed(periodicFocusRunnable, 1000)
+        }
+
+        // 枠のサイズが変わるたびに、それに応じてカメラのズームを調整する。
+        // ピントの合わせ直しは「セット」後にのみ行う。
         targetOverlayView.onRectChanged = { rect ->
             updateZoomForRect(rect)
-            focusOnGuideRect()
+            if (isArmed) {
+                focusOnGuideRect()
+            }
         }
 
         startCameraPreview()
@@ -155,11 +179,7 @@ class CameraActivity : AppCompatActivity() {
                 // レイアウト確定後の枠の初期サイズを、ズーム計算の基準として記録しておく
                 targetOverlayView.post {
                     referenceGuideWidth = targetOverlayView.getGuideRect()?.width()
-                    focusOnGuideRect()
                 }
-                // 据え置き撮影を想定し、枠の中心へのピント合わせを定期的に繰り返す
-                focusHandler.removeCallbacks(periodicFocusRunnable)
-                focusHandler.postDelayed(periodicFocusRunnable, 3000)
             } catch (e: Exception) {
                 Toast.makeText(this, "カメラを起動できませんでした: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 setResult(RESULT_CANCELED)
@@ -225,7 +245,7 @@ class CameraActivity : AppCompatActivity() {
      */
     @ExperimentalGetImage
     private fun analyzeFrameForLiveText(imageProxy: androidx.camera.core.ImageProxy) {
-        if (isAnalyzing || !isFrameVisible) {
+        if (isAnalyzing || !isFrameVisible || !isArmed) {
             imageProxy.close()
             return
         }
@@ -264,14 +284,20 @@ class CameraActivity : AppCompatActivity() {
                 when {
                     matchedLine != null -> {
                         hasDetectedMatch = true
+                        consecutiveMatchCount++
 
-                        if (!hasAutoCaptured) {
+                        // 1回の誤読で撮影してしまわないよう、2フレーム連続で検出できてから撮影する
+                        val requiredConsecutiveMatches = 2
+                        if (!hasAutoCaptured && consecutiveMatchCount >= requiredConsecutiveMatches) {
                             // 対象コードを検出。タイムラグによるズレを避けるため、
                             // 切り出しはピッタリの文字範囲ではなく、ターゲット枠全体を対象にする
                             hasAutoCaptured = true
                             liveResultText.text = "検出: ${matchedLine.text} → 自動撮影します"
                             liveResultText.setTextColor(Color.parseColor("#00E676"))
                             takePhoto()
+                        } else if (!hasAutoCaptured) {
+                            liveResultText.text = "検出: ${matchedLine.text} (確認中…)"
+                            liveResultText.setTextColor(Color.parseColor("#00E676"))
                         } else {
                             // 既に自動撮影を開始済みなので、表示だけ更新して撮影は行わない
                             liveResultText.text = "検出: ${matchedLine.text}"
@@ -280,6 +306,7 @@ class CameraActivity : AppCompatActivity() {
                     }
                     else -> {
                         hasDetectedMatch = false
+                        consecutiveMatchCount = 0
                         updateLiveResultDisplay(relevantLines.joinToString("\n") { it.text })
                     }
                 }
@@ -369,6 +396,11 @@ class CameraActivity : AppCompatActivity() {
                     // 撮影に失敗した場合は、自動撮影・検出状態をやり直せるようにフラグを戻す
                     hasAutoCaptured = false
                     hasDetectedMatch = false
+                    consecutiveMatchCount = 0
+                    isArmed = false
+                    focusHandler.removeCallbacks(periodicFocusRunnable)
+                    btnSet.isEnabled = true
+                    btnSet.text = "セット"
                     Toast.makeText(
                         this@CameraActivity,
                         "撮影に失敗しました: ${exception.localizedMessage}",
