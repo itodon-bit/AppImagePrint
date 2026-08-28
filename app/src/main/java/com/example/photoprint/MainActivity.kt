@@ -54,18 +54,14 @@ class MainActivity : AppCompatActivity() {
         TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
     }
 
-    // 認識結果の中から「対象のコード」を見つけるための正規表現
-    // (数字2桁 + 英字1文字(任意) + ハイフン + 英字1文字(任意) + 数字8桁、という構造)
-    private val targetCodeRegex = Regex("""\d{2}[A-Za-z]?-[A-Za-z]?\d{8}""")
+    // 認識結果の中から「対象のコード」を見つけるための正規表現(AppConstantsで共有定義)
+    private val targetCodeRegex = AppConstants.TARGET_CODE_REGEX
 
     // 撮影した写真の一時保存先File
     private var photoFile: File? = null
 
     // 撮影時のターゲット枠の位置・サイズ(プレビュー画面に対する割合)。枠情報が無い場合はnullのまま
-    private var frameLeftRatio: Float? = null
-    private var frameTopRatio: Float? = null
-    private var frameRightRatio: Float? = null
-    private var frameBottomRatio: Float? = null
+    private var frameRatioRect: RectF? = null
 
     // 撮影後に読み込んだ元のBitmap(トリミングの元データ)
     private var originalBitmap: Bitmap? = null
@@ -78,16 +74,24 @@ class MainActivity : AppCompatActivity() {
                 if (path != null) {
                     photoFile = File(path)
 
-                    // 枠の情報が含まれていれば保持し、無ければnullにして写真全体を対象にする
+                    // 枠の情報が4つとも含まれていればRectFとして保持し、
+                    // ひとつでも欠けていればnullにして写真全体を対象にする
                     val data = result.data
-                    frameLeftRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_LEFT_RATIO) == true)
-                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_LEFT_RATIO, 0f) else null
-                    frameTopRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_TOP_RATIO) == true)
-                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_TOP_RATIO, 0f) else null
-                    frameRightRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_RIGHT_RATIO) == true)
-                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_RIGHT_RATIO, 1f) else null
-                    frameBottomRatio = if (data?.hasExtra(CameraActivity.EXTRA_FRAME_BOTTOM_RATIO) == true)
-                        data.getFloatExtra(CameraActivity.EXTRA_FRAME_BOTTOM_RATIO, 1f) else null
+                    frameRatioRect = if (data != null &&
+                        data.hasExtra(CameraActivity.EXTRA_FRAME_LEFT_RATIO) &&
+                        data.hasExtra(CameraActivity.EXTRA_FRAME_TOP_RATIO) &&
+                        data.hasExtra(CameraActivity.EXTRA_FRAME_RIGHT_RATIO) &&
+                        data.hasExtra(CameraActivity.EXTRA_FRAME_BOTTOM_RATIO)
+                    ) {
+                        RectF(
+                            data.getFloatExtra(CameraActivity.EXTRA_FRAME_LEFT_RATIO, 0f),
+                            data.getFloatExtra(CameraActivity.EXTRA_FRAME_TOP_RATIO, 0f),
+                            data.getFloatExtra(CameraActivity.EXTRA_FRAME_RIGHT_RATIO, 1f),
+                            data.getFloatExtra(CameraActivity.EXTRA_FRAME_BOTTOM_RATIO, 1f)
+                        )
+                    } else {
+                        null
+                    }
 
                     onPhotoCaptured()
                 } else {
@@ -196,10 +200,9 @@ class MainActivity : AppCompatActivity() {
         // 撮影時に枠(ターゲット枠)が使われていた場合だけ、自動でOCRを実行する。
         // 枠を隠して「写真全体」を撮影した場合はOCRを行わず、必要であれば
         // 「範囲を選んで再認識」で手動により文字認識してもらう。
-        val hasFrame = frameLeftRatio != null && frameTopRatio != null &&
-            frameRightRatio != null && frameBottomRatio != null
+        val frame = frameRatioRect
 
-        if (hasFrame) {
+        if (frame != null) {
             tvHint.text = "枠内の文字を自動で読み取っています…"
             runOcr(cropToFrameIfAvailable(bitmap), highlightTargetCode = true)
         } else {
@@ -210,16 +213,12 @@ class MainActivity : AppCompatActivity() {
 
     /** 撮影時のターゲット枠の位置情報があれば、その範囲だけを写真から切り出す。無ければ写真全体を返す */
     private fun cropToFrameIfAvailable(bitmap: Bitmap): Bitmap {
-        val left = frameLeftRatio
-        val top = frameTopRatio
-        val right = frameRightRatio
-        val bottom = frameBottomRatio
-        if (left == null || top == null || right == null || bottom == null) return bitmap
+        val frame = frameRatioRect ?: return bitmap
 
-        val l = (left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
-        val t = (top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
-        val r = (right * bitmap.width).toInt().coerceIn(l + 1, bitmap.width)
-        val b = (bottom * bitmap.height).toInt().coerceIn(t + 1, bitmap.height)
+        val l = (frame.left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+        val t = (frame.top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+        val r = (frame.right * bitmap.width).toInt().coerceIn(l + 1, bitmap.width)
+        val b = (frame.bottom * bitmap.height).toInt().coerceIn(t + 1, bitmap.height)
 
         return Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
     }
@@ -297,15 +296,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun printSelectedArea() {
         val cropped = cropSelectedArea() ?: return
+        printBitmap(cropped, "selected_photo")
+    }
 
-        // androidx.print の PrintHelper を使うと、システムの印刷ダイアログが開き
-        // Wi-Fi/無線接続されたプリンタ(Mopria対応機種やメーカー純正Print Service経由)を選択できる
+    /**
+     * Bitmapを印刷する共通処理。androidx.print の PrintHelper を使うと、
+     * システムの印刷ダイアログが開き、Wi-Fi/無線接続されたプリンタ
+     * (Mopria対応機種やメーカー純正Print Service経由)を選択できる。
+     */
+    private fun printBitmap(bitmap: Bitmap, jobNamePrefix: String) {
         val printHelper = PrintHelper(this).apply {
             scaleMode = PrintHelper.SCALE_MODE_FIT
         }
-
         try {
-            printHelper.printBitmap("selected_photo_" + System.currentTimeMillis(), cropped)
+            printHelper.printBitmap("${jobNamePrefix}_${System.currentTimeMillis()}", bitmap)
         } catch (e: Exception) {
             Toast.makeText(
                 this,
@@ -446,20 +450,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val textBitmap = createTextBitmap(text)
-        val printHelper = PrintHelper(this).apply {
-            scaleMode = PrintHelper.SCALE_MODE_FIT
-        }
-
-        try {
-            printHelper.printBitmap("recognized_text_" + System.currentTimeMillis(), textBitmap)
-        } catch (e: Exception) {
-            Toast.makeText(
-                this,
-                "印刷を開始できませんでした。プリンタの印刷サービスが有効になっているか確認してください。",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        printBitmap(createTextBitmap(text), "recognized_text")
     }
 
     /** テキストをA4相当の白紙レイアウトに描画したBitmapを生成する */
@@ -488,5 +479,11 @@ class MainActivity : AppCompatActivity() {
         canvas.restore()
 
         return bitmap
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // OCRエンジンが確保しているリソースを解放し、メモリを軽くする
+        textRecognizer.close()
     }
 }

@@ -63,12 +63,12 @@ class CameraActivity : AppCompatActivity() {
     private val liveTextRecognizer by lazy {
         TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
     }
-    private val targetCodeRegex = Regex("""\d{2}[A-Za-z]?-[A-Za-z]?\d{8}""")
+    private val targetCodeRegex = AppConstants.TARGET_CODE_REGEX
     private var isAnalyzing = false
     // 対象コードを検出して自動撮影した後、連続で何度も撮影しないようにするためのフラグ
     private var hasAutoCaptured = false
-    // 直近で検出できている対象コードの範囲(画像全体に対する割合)。未検出ならnull
-    private var currentMatchRatioRect: RectF? = null
+    // 直近のフレームで対象コードを検出できているかどうか
+    private var hasDetectedMatch = false
 
     // ズーム倍率を計算する基準となる、枠の標準サイズ(初期状態)の幅
     private var referenceGuideWidth: Float? = null
@@ -78,7 +78,7 @@ class CameraActivity : AppCompatActivity() {
     private val periodicFocusRunnable = object : Runnable {
         override fun run() {
             focusOnGuideRect()
-            focusHandler.postDelayed(this, 2000)
+            focusHandler.postDelayed(this, 3000)
         }
     }
 
@@ -98,9 +98,8 @@ class CameraActivity : AppCompatActivity() {
             finish()
         }
         btnCapture.setOnClickListener {
-            // 手動撮影は検出の有無に関わらず常に実行する。
-            // 検出済みの範囲があればそれを使い、無ければ枠全体を対象にする。
-            takePhoto(currentMatchRatioRect)
+            // 手動撮影は検出の有無に関わらず常に実行し、ターゲット枠全体を対象にする
+            takePhoto()
         }
         btnToggleFrame.setOnClickListener {
             isFrameVisible = !isFrameVisible
@@ -160,7 +159,7 @@ class CameraActivity : AppCompatActivity() {
                 }
                 // 据え置き撮影を想定し、枠の中心へのピント合わせを定期的に繰り返す
                 focusHandler.removeCallbacks(periodicFocusRunnable)
-                focusHandler.postDelayed(periodicFocusRunnable, 2000)
+                focusHandler.postDelayed(periodicFocusRunnable, 3000)
             } catch (e: Exception) {
                 Toast.makeText(this, "カメラを起動できませんでした: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 setResult(RESULT_CANCELED)
@@ -198,6 +197,8 @@ class CameraActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         focusHandler.removeCallbacks(periodicFocusRunnable)
+        // OCRエンジンが確保しているリソースを解放し、メモリを軽くする
+        liveTextRecognizer.close()
     }
 
     /**
@@ -261,17 +262,16 @@ class CameraActivity : AppCompatActivity() {
                 val matchedLine = relevantLines.firstOrNull { targetCodeRegex.containsMatchIn(it.text) }
 
                 when {
-                    matchedLine != null && matchedLine.boundingBox != null -> {
-                        val box = matchedLine.boundingBox!!
-                        val ratioRect = paddedRatioRect(box, imageWidth, imageHeight)
-                        currentMatchRatioRect = ratioRect
+                    matchedLine != null -> {
+                        hasDetectedMatch = true
 
                         if (!hasAutoCaptured) {
-                            // 対象コードを検出。その部分だけを狙って自動的にシャッターを切る
+                            // 対象コードを検出。タイムラグによるズレを避けるため、
+                            // 切り出しはピッタリの文字範囲ではなく、ターゲット枠全体を対象にする
                             hasAutoCaptured = true
                             liveResultText.text = "検出: ${matchedLine.text} → 自動撮影します"
                             liveResultText.setTextColor(Color.parseColor("#00E676"))
-                            takePhoto(ratioRect)
+                            takePhoto()
                         } else {
                             // 既に自動撮影を開始済みなので、表示だけ更新して撮影は行わない
                             liveResultText.text = "検出: ${matchedLine.text}"
@@ -279,7 +279,7 @@ class CameraActivity : AppCompatActivity() {
                         }
                     }
                     else -> {
-                        currentMatchRatioRect = null
+                        hasDetectedMatch = false
                         updateLiveResultDisplay(relevantLines.joinToString("\n") { it.text })
                     }
                 }
@@ -291,19 +291,6 @@ class CameraActivity : AppCompatActivity() {
                 isAnalyzing = false
                 imageProxy.close()
             }
-    }
-
-    /**
-     * 検出した文字の周辺の余白を最小限にしつつ、画像全体に対する割合(0.0〜1.0)の矩形に変換する。
-     */
-    private fun paddedRatioRect(box: Rect, imageWidth: Int, imageHeight: Int): RectF {
-        val paddingX = box.width() * 0.03f
-        val paddingY = box.height() * 0.08f
-        val left = (box.left - paddingX).coerceAtLeast(0f)
-        val top = (box.top - paddingY).coerceAtLeast(0f)
-        val right = (box.right + paddingX).coerceAtMost(imageWidth.toFloat())
-        val bottom = (box.bottom + paddingY).coerceAtMost(imageHeight.toFloat())
-        return RectF(left / imageWidth, top / imageHeight, right / imageWidth, bottom / imageHeight)
     }
 
     /** 枠(View座標)を、解析用画像のピクセル座標に変換する */
@@ -342,12 +329,8 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * 撮影を実行する。
-     * @param autoDetectedRatioRect 自動検出によって撮影する場合、検出した文字の範囲(画像全体に対する割合)。
-     *   nullの場合(手動で撮影ボタンを押した場合)は、表示中のターゲット枠の範囲を使う。
-     */
-    private fun takePhoto(autoDetectedRatioRect: RectF? = null) {
+    /** 撮影を実行する。ターゲット枠が表示されていれば、その範囲をMainActivity側へ一緒に渡す */
+    private fun takePhoto() {
         val capture = imageCapture ?: return
 
         val imagesDir = File(getExternalFilesDir(null), "images").apply { mkdirs() }
@@ -363,26 +346,18 @@ class CameraActivity : AppCompatActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     val resultIntent = Intent().putExtra(EXTRA_PHOTO_PATH, file.absolutePath)
 
-                    if (autoDetectedRatioRect != null) {
-                        // 自動検出された文字の範囲だけを狙って渡す
-                        resultIntent.putExtra(EXTRA_FRAME_LEFT_RATIO, autoDetectedRatioRect.left)
-                        resultIntent.putExtra(EXTRA_FRAME_TOP_RATIO, autoDetectedRatioRect.top)
-                        resultIntent.putExtra(EXTRA_FRAME_RIGHT_RATIO, autoDetectedRatioRect.right)
-                        resultIntent.putExtra(EXTRA_FRAME_BOTTOM_RATIO, autoDetectedRatioRect.bottom)
-                    } else {
-                        // 撮影時のターゲット枠の位置・サイズを、プレビュー画面に対する割合で一緒に渡す。
-                        // MainActivity側でこの割合を使い、撮影された写真のうち枠内の部分だけを切り出せるようにする。
-                        // ただし、枠を隠した状態で撮影した場合は「カメラの見た目そのまま」を撮りたいという
-                        // 意図とみなし、枠の情報を渡さない(=写真全体がOCRの対象になる)。
-                        val rect = targetOverlayView.getGuideRect()
-                        if (isFrameVisible && rect != null &&
-                            targetOverlayView.width > 0 && targetOverlayView.height > 0
-                        ) {
-                            resultIntent.putExtra(EXTRA_FRAME_LEFT_RATIO, rect.left / targetOverlayView.width)
-                            resultIntent.putExtra(EXTRA_FRAME_TOP_RATIO, rect.top / targetOverlayView.height)
-                            resultIntent.putExtra(EXTRA_FRAME_RIGHT_RATIO, rect.right / targetOverlayView.width)
-                            resultIntent.putExtra(EXTRA_FRAME_BOTTOM_RATIO, rect.bottom / targetOverlayView.height)
-                        }
+                    // 撮影時のターゲット枠の位置・サイズを、プレビュー画面に対する割合で一緒に渡す。
+                    // MainActivity側でこの割合を使い、撮影された写真のうち枠内の部分だけを切り出せるようにする。
+                    // ただし、枠を隠した状態で撮影した場合は「カメラの見た目そのまま」を撮りたいという
+                    // 意図とみなし、枠の情報を渡さない(=写真全体がOCRの対象になる)。
+                    val rect = targetOverlayView.getGuideRect()
+                    if (isFrameVisible && rect != null &&
+                        targetOverlayView.width > 0 && targetOverlayView.height > 0
+                    ) {
+                        resultIntent.putExtra(EXTRA_FRAME_LEFT_RATIO, rect.left / targetOverlayView.width)
+                        resultIntent.putExtra(EXTRA_FRAME_TOP_RATIO, rect.top / targetOverlayView.height)
+                        resultIntent.putExtra(EXTRA_FRAME_RIGHT_RATIO, rect.right / targetOverlayView.width)
+                        resultIntent.putExtra(EXTRA_FRAME_BOTTOM_RATIO, rect.bottom / targetOverlayView.height)
                     }
 
                     setResult(RESULT_OK, resultIntent)
@@ -393,7 +368,7 @@ class CameraActivity : AppCompatActivity() {
                     btnCapture.isEnabled = true
                     // 撮影に失敗した場合は、自動撮影・検出状態をやり直せるようにフラグを戻す
                     hasAutoCaptured = false
-                    currentMatchRatioRect = null
+                    hasDetectedMatch = false
                     Toast.makeText(
                         this@CameraActivity,
                         "撮影に失敗しました: ${exception.localizedMessage}",
