@@ -55,8 +55,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     // 認識結果の中から「対象のコード」を見つけるための正規表現
-    // (例: 12AB-3456 のような、数字2桁 + 英数字(任意) + ハイフン(必須) + 数字、という構造)
-    private val targetCodeRegex = Regex("""\d{2}[A-Za-z\d]*-\d+""")
+    // (数字2桁 + 英字(任意) + ハイフン + 英字(任意) + 数字8桁、という構造)
+    private val targetCodeRegex = Regex("""\d{2}[A-Za-z]*-[A-Za-z]*\d{8}""")
 
     // 撮影した写真の一時保存先File
     private var photoFile: File? = null

@@ -63,10 +63,12 @@ class CameraActivity : AppCompatActivity() {
     private val liveTextRecognizer by lazy {
         TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
     }
-    private val targetCodeRegex = Regex("""\d{2}[A-Za-z\d]*-\d+""")
+    private val targetCodeRegex = Regex("""\d{2}[A-Za-z]*-[A-Za-z]*\d{8}""")
     private var isAnalyzing = false
     // 対象コードを検出して自動撮影した後、連続で何度も撮影しないようにするためのフラグ
     private var hasAutoCaptured = false
+    // 直近で検出できている対象コードの範囲(画像全体に対する割合)。未検出ならnull
+    private var currentMatchRatioRect: RectF? = null
 
     // ズーム倍率を計算する基準となる、枠の標準サイズ(初期状態)の幅
     private var referenceGuideWidth: Float? = null
@@ -76,7 +78,7 @@ class CameraActivity : AppCompatActivity() {
     private val periodicFocusRunnable = object : Runnable {
         override fun run() {
             focusOnGuideRect()
-            focusHandler.postDelayed(this, 1000)
+            focusHandler.postDelayed(this, 2000)
         }
     }
 
@@ -95,7 +97,11 @@ class CameraActivity : AppCompatActivity() {
             setResult(RESULT_CANCELED)
             finish()
         }
-        btnCapture.setOnClickListener { takePhoto() }
+        btnCapture.setOnClickListener {
+            // 手動撮影は検出の有無に関わらず常に実行する。
+            // 検出済みの範囲があればそれを使い、無ければ枠全体を対象にする。
+            takePhoto(currentMatchRatioRect)
+        }
         btnToggleFrame.setOnClickListener {
             isFrameVisible = !isFrameVisible
             // GONEではなくINVISIBLEにすることで、レイアウトの再計算を発生させずに
@@ -154,7 +160,7 @@ class CameraActivity : AppCompatActivity() {
                 }
                 // 据え置き撮影を想定し、枠の中心へのピント合わせを定期的に繰り返す
                 focusHandler.removeCallbacks(periodicFocusRunnable)
-                focusHandler.postDelayed(periodicFocusRunnable, 1000)
+                focusHandler.postDelayed(periodicFocusRunnable, 2000)
             } catch (e: Exception) {
                 Toast.makeText(this, "カメラを起動できませんでした: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 setResult(RESULT_CANCELED)
@@ -255,24 +261,25 @@ class CameraActivity : AppCompatActivity() {
                 val matchedLine = relevantLines.firstOrNull { targetCodeRegex.containsMatchIn(it.text) }
 
                 when {
-                    matchedLine != null && !hasAutoCaptured -> {
-                        // 対象コードを検出。その部分だけを狙って自動的にシャッターを切る
-                        val box = matchedLine.boundingBox
-                        if (box != null) {
+                    matchedLine != null && matchedLine.boundingBox != null -> {
+                        val box = matchedLine.boundingBox!!
+                        val ratioRect = paddedRatioRect(box, imageWidth, imageHeight)
+                        currentMatchRatioRect = ratioRect
+
+                        if (!hasAutoCaptured) {
+                            // 対象コードを検出。その部分だけを狙って自動的にシャッターを切る
                             hasAutoCaptured = true
                             liveResultText.text = "検出: ${matchedLine.text} → 自動撮影します"
                             liveResultText.setTextColor(Color.parseColor("#00E676"))
-                            takePhoto(paddedRatioRect(box, imageWidth, imageHeight))
+                            takePhoto(ratioRect)
                         } else {
-                            updateLiveResultDisplay(matchedLine.text)
+                            // 既に自動撮影を開始済みなので、表示だけ更新して撮影は行わない
+                            liveResultText.text = "検出: ${matchedLine.text}"
+                            liveResultText.setTextColor(Color.parseColor("#00E676"))
                         }
                     }
-                    matchedLine != null -> {
-                        // 既に自動撮影を開始済みなので、表示だけ更新して撮影は行わない
-                        liveResultText.text = "検出: ${matchedLine.text}"
-                        liveResultText.setTextColor(Color.parseColor("#00E676"))
-                    }
                     else -> {
+                        currentMatchRatioRect = null
                         updateLiveResultDisplay(relevantLines.joinToString("\n") { it.text })
                     }
                 }
@@ -384,8 +391,9 @@ class CameraActivity : AppCompatActivity() {
 
                 override fun onError(exception: ImageCaptureException) {
                     btnCapture.isEnabled = true
-                    // 撮影に失敗した場合は、自動撮影をやり直せるようにフラグを戻す
+                    // 撮影に失敗した場合は、自動撮影・検出状態をやり直せるようにフラグを戻す
                     hasAutoCaptured = false
+                    currentMatchRatioRect = null
                     Toast.makeText(
                         this@CameraActivity,
                         "撮影に失敗しました: ${exception.localizedMessage}",
