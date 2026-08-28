@@ -427,7 +427,10 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (highlightTargetCode) {
-                    val match = targetCodeRegex.find(recognized)
+                    // 正規表現とのマッチ判定は、OCRが誤って挿入した文字間のスペースの影響を受けないよう、
+                    // 空白をすべて取り除いた文字列に対して行う
+                    val compact = recognized.replace(Regex("\\s+"), "")
+                    val match = targetCodeRegex.find(compact)
                     if (match != null) {
                         // 一致した対象コードの部分だけを編集欄に表示する
                         etRecognizedText.setText(match.value)

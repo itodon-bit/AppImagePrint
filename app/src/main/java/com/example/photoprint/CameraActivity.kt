@@ -323,9 +323,14 @@ class CameraActivity : AppCompatActivity() {
             }
     }
 
-    /** 全角の数字・英字・記号を半角に変換し、前後の空白を取り除く(全角文字によるマッチ漏れを防ぐため) */
+    /**
+     * 全角の数字・英字・記号を半角に変換し、空白をすべて取り除く。
+     * OCRは文字と文字の間に誤ってスペースを挿入することがあるため、前後だけでなく
+     * 文字列内のスペースもすべて除去してから正規表現の判定に使う。
+     */
     private fun normalizeText(text: String): String {
-        return Normalizer.normalize(text, Normalizer.Form.NFKC).trim()
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC)
+        return normalized.replace(Regex("\\s+"), "")
     }
 
     /** 枠(View座標)を、解析用画像のピクセル座標に変換する */
