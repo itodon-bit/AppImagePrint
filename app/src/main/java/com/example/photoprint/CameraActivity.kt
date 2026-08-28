@@ -27,6 +27,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import java.io.File
+import java.text.Normalizer
 import java.util.concurrent.TimeUnit
 
 /**
@@ -279,7 +280,9 @@ class CameraActivity : AppCompatActivity() {
                     result.textBlocks.flatMap { it.lines }
                 }
 
-                val matchedLine = relevantLines.firstOrNull { targetCodeRegex.containsMatchIn(it.text) }
+                val matchedLine = relevantLines.firstOrNull {
+                    targetCodeRegex.containsMatchIn(normalizeText(it.text))
+                }
 
                 when {
                     matchedLine != null -> {
@@ -320,6 +323,11 @@ class CameraActivity : AppCompatActivity() {
             }
     }
 
+    /** 全角の数字・英字・記号を半角に変換し、前後の空白を取り除く(全角文字によるマッチ漏れを防ぐため) */
+    private fun normalizeText(text: String): String {
+        return Normalizer.normalize(text, Normalizer.Form.NFKC).trim()
+    }
+
     /** 枠(View座標)を、解析用画像のピクセル座標に変換する */
     private fun mapGuideRectToImageRect(imageWidth: Int, imageHeight: Int): Rect? {
         val rect = targetOverlayView.getGuideRect() ?: return null
@@ -339,7 +347,7 @@ class CameraActivity : AppCompatActivity() {
 
     /** ライブ認識結果を画面に反映する。正規表現に合うコードが見つかった場合は目立つ色で表示する */
     private fun updateLiveResultDisplay(text: String) {
-        val match = targetCodeRegex.find(text)
+        val match = targetCodeRegex.find(normalizeText(text))
         when {
             match != null -> {
                 liveResultText.text = "検出: ${match.value}"

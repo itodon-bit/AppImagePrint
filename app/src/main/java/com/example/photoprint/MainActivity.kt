@@ -34,6 +34,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import java.io.File
+import java.text.Normalizer
 import kotlin.math.max
 import kotlin.math.min
 
@@ -391,6 +392,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * OCR結果を扱いやすい形に正規化する。
+     * 1) 全角の数字・英字・記号(例: １２Ａ－)をNFKC正規化で半角に変換する
+     * 2) 各行の前後にある余計な空白(全角スペース含む)を取り除く
+     */
+    private fun normalizeRecognizedText(text: String): String {
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC)
+        return normalized
+            .lines()
+            .joinToString("\n") { it.trim() }
+            .trim()
+    }
+
+    /**
      * 指定したBitmapに対してOCR(文字認識)を実行する共通処理。
      * highlightTargetCode が true の場合、認識結果の中から targetCodeRegex に一致する部分を探し、
      * 見つかればその部分「だけ」を編集欄に表示する(一致しなければ認識結果全体を表示する)。
@@ -405,7 +419,7 @@ class MainActivity : AppCompatActivity() {
         textRecognizer.process(inputImage)
             .addOnSuccessListener { result ->
                 btnOcr.isEnabled = true
-                val recognized = result.text
+                val recognized = normalizeRecognizedText(result.text)
                 if (recognized.isBlank()) {
                     tvHint.text = "文字を認識できませんでした。範囲を調整して再度お試しください"
                     btnPrintText.isEnabled = false
