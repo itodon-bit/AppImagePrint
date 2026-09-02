@@ -449,7 +449,7 @@ class MainActivity : AppCompatActivity() {
                         // 対象コードの形式に一致しなかった場合は、認識結果全体をそのまま表示する
                         etRecognizedText.setText(recognized)
                         btnPrintText.isEnabled = true
-                        tvHint.text = "読み取れましたが、対象コードの形式(例: 12A-B12345678)には" +
+                        tvHint.text = "読み取れましたが、対象コードの形式(例: 12A-B12345678 / Z-12345678)には" +
                             "一致しませんでした。内容を確認・修正してください"
                     }
                 } else {
