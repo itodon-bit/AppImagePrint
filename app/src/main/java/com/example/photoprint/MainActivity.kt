@@ -444,7 +444,10 @@ class MainActivity : AppCompatActivity() {
                             etRecognizedText.requestFocus()
                             etRecognizedText.setSelection(0, match.value.length)
                         }
-                        tvHint.text = "対象のコードを読み取りました。そのまま印刷、または修正できます"
+                        tvHint.text = "対象のコードを読み取りました。印刷ダイアログを開きます…"
+
+                        // タップ数を減らすため、対象コードを確認できた時点で自動的に印刷ダイアログを開く
+                        printBitmap(createTextBitmap(match.value), "recognized_text")
                     } else {
                         // 対象コードの形式に一致しなかった場合は、認識結果全体をそのまま表示する
                         etRecognizedText.setText(recognized)
